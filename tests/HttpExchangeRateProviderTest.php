@@ -86,4 +86,31 @@ final class HttpExchangeRateProviderTest extends TestCase
 
         self::assertSame('https://api.example.com/EUR/USD', $transport->getRecorded()[0]['url']);
     }
+
+    public function test_constructor_rejects_template_missing_base_placeholder(): void
+    {
+        $client = new HttpClient(new FakeTransport([]));
+
+        $this->expectException(\InvalidArgumentException::class);
+
+        new HttpExchangeRateProvider($client, 'https://api.example.com?to={quote}');
+    }
+
+    public function test_constructor_rejects_template_missing_quote_placeholder(): void
+    {
+        $client = new HttpClient(new FakeTransport([]));
+
+        $this->expectException(\InvalidArgumentException::class);
+
+        new HttpExchangeRateProvider($client, 'https://api.example.com?from={base}');
+    }
+
+    public function test_constructor_rejects_template_missing_both_placeholders(): void
+    {
+        $client = new HttpClient(new FakeTransport([]));
+
+        $this->expectException(\InvalidArgumentException::class);
+
+        new HttpExchangeRateProvider($client, 'https://api.example.com?rate');
+    }
 }

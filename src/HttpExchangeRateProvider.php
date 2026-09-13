@@ -31,12 +31,19 @@ final class HttpExchangeRateProvider implements ExchangeRateProviderInterface
     /**
      * @param string $urlTemplate Must contain the literal placeholders `{base}` and `{quote}`.
      * @param string $ratePath    Dot-notation path to the rate value in the decoded JSON body.
+     *
+     * @throws \InvalidArgumentException When `$urlTemplate` is missing `{base}` or `{quote}`.
      */
     public function __construct(
         private readonly HttpClient $httpClient,
         private readonly string $urlTemplate,
         private readonly string $ratePath = 'rate',
     ) {
+        if (!str_contains($urlTemplate, '{base}') || !str_contains($urlTemplate, '{quote}')) {
+            throw new \InvalidArgumentException(
+                "URL template must contain both '{base}' and '{quote}' placeholders, got: {$urlTemplate}",
+            );
+        }
     }
 
     public function getRate(Currency|string $base, Currency|string $quote): BigDecimal
