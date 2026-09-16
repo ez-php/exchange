@@ -47,7 +47,27 @@ $converter = new Converter($provider);
 $jpy = $converter->convert(Money::of('1.00', 'EUR'), 'JPY'); // rounded to JPY's scale (0)
 ```
 
-Rate caching and historical/time-series rates are out of scope — compose `ez-php/cache` around a provider if you need caching.
+Historical/time-series rates are out of scope.
+
+### Caching a provider
+
+```php
+use EzPhp\Cache\ArrayDriver;
+use EzPhp\Exchange\CachingExchangeRateProvider;
+use EzPhp\Exchange\Converter;
+use EzPhp\Exchange\HttpExchangeRateProvider;
+
+$cached = new CachingExchangeRateProvider(
+    new HttpExchangeRateProvider(/* ... */),
+    new ArrayDriver(), // or any ez-php/cache driver
+    ttl: 3600,
+);
+
+$converter = new Converter($cached);
+```
+
+Requires `ez-php/cache` (a soft dependency — declared in `require-dev` here, install it
+separately in applications that want this decorator).
 
 ---
 

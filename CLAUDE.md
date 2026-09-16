@@ -265,6 +265,7 @@ src/
 ├── ExchangeRateProviderInterface.php    — getRate(base, quote): BigDecimal
 ├── StaticExchangeRateProvider.php       — In-memory rate table driver; also the standard test double
 ├── HttpExchangeRateProvider.php         — Generic HTTP-backed driver (URL template + dot-notation JSON path)
+├── CachingExchangeRateProvider.php      — Decorator caching another provider's getRate() via ez-php/cache (soft dependency — require-dev only)
 ├── Converter.php                        — Converts a Money to another currency using a provider
 └── Exception/
     ├── ExchangeException.php            — Base exception (extends RuntimeException; not final, extended by design)
@@ -274,6 +275,7 @@ tests/
 ├── TestCase.php                         — Base PHPUnit test case (no framework coupling)
 ├── StaticExchangeRateProviderTest.php   — Rate table lookup, overwrite, same-currency shortcut, missing pair
 ├── HttpExchangeRateProviderTest.php     — URL templating, dot-path extraction, transport/HTTP-error handling
+├── CachingExchangeRateProviderTest.php  — Cache hit/miss via ez-php/cache's ArrayDriver, per-pair key isolation, exception passthrough
 └── ConverterTest.php                    — Conversion, target-scale rounding, explicit rounding mode, same-currency
 ```
 
@@ -293,6 +295,10 @@ In-memory driver backed by a nested `[baseCode => [quoteCode => rate]]` table, s
 
 HTTP-backed driver built on `ez-php/http-client`'s `HttpClient`. Takes a URL template (`{base}`/`{quote}` placeholders) and a dot-notation path to the rate value in the decoded JSON response, so it adapts to most rate APIs without this package depending on any one of them. Wraps both transport failures (`HttpClientException`) and non-2xx responses as `ExchangeRateNotFoundException` so callers only need to catch one exception type regardless of driver.
 
+### CachingExchangeRateProvider (`src/CachingExchangeRateProvider.php`)
+
+Decorator implementing `ExchangeRateProviderInterface` itself, so it composes transparently anywhere a provider is expected (including as the inner provider of `Converter`). Wraps another provider plus a `CacheInterface` and a TTL; `getRate()` keys the cache by `exchange_rate:{base}:{quote}` and delegates to `CacheInterface::remember()`, so a cache hit never calls the wrapped provider at all. `ExchangeRateNotFoundException` from the wrapped provider propagates uncached — a lookup failure is never cached as a false negative.
+
 ### Converter (`src/Converter.php`)
 
 `convert(Money, Currency|string $target, RoundingMode = HALF_UP): Money`. Looks up the rate, multiplies the source amount, and rounds to the target currency's scale — mirroring how `Money::multiply()` requires an explicit rounding decision. Converting to the same currency short-circuits and returns the input unchanged, without consulting the provider.
@@ -301,7 +307,7 @@ HTTP-backed driver built on `ez-php/http-client`'s `HttpClient`. Takes a URL tem
 
 ## Design Decisions and Constraints
 
-- **No caching** — rate caching is explicitly out of scope per the original idea (`EZ_PHP_IDEAS.md`); compose `ez-php/cache` around a provider at the application layer if needed.
+- **No built-in caching on the base providers** — `StaticExchangeRateProvider`/`HttpExchangeRateProvider` never cache internally. `CachingExchangeRateProvider` provides caching as an explicit decorator instead, composed at the application's discretion (e.g. wrapping `HttpExchangeRateProvider` but not `StaticExchangeRateProvider`, which is already in-memory) — via `require-dev`, not `require`, so it costs nothing for applications that don't want it.
 - **No historical/time-series rates** — `getRate()` always returns "now"; a time-series API is a different, larger surface left for a future package or application code.
 - **`HttpExchangeRateProvider` is deliberately generic** — a URL template plus a JSON path, rather than one hardcoded provider's API shape (e.g. a specific vendor's endpoint contract). Adding a dedicated driver for a specific API is an application-layer concern unless a second concrete need emerges.
 - **`ExchangeException` is the one non-final class**, per the exception-hierarchy carve-out in the coding guidelines — it exists to be extended by `ExchangeRateNotFoundException` (and any future exception this package adds).
@@ -324,7 +330,7 @@ HTTP-backed driver built on `ez-php/http-client`'s `HttpClient`. Takes a URL tem
 
 | Concern | Where it belongs |
 |---|---|
-| Rate caching / TTL | `ez-php/cache`, composed at the application layer |
+| Cache invalidation policy / warming | Application layer, configuring `CachingExchangeRateProvider`'s TTL and driver choice |
 | Historical / time-series rates | Application layer or a future package |
 | `Money` arithmetic itself | `ez-php/money` |
 | Arbitrary-precision primitives | `ez-php/bignum` |

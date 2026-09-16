@@ -1,6 +1,6 @@
 {
   "name": "ez-php/exchange",
-  "version": "2.4.1",
+  "version": "2.4.2",
   "description": "Currency exchange-rate lookup and conversion for Money values",
   "type": "library",
   "license": "MIT",
@@ -24,6 +24,7 @@
   },
   "require-dev": {
     "ez-php/docker": "^2.0",
+    "ez-php/cache": "^2.0",
     "phpunit/phpunit": "^13.0",
     "phpstan/phpstan": "^2.1",
     "friendsofphp/php-cs-fixer": "^3.94",
