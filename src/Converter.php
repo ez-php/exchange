@@ -16,6 +16,11 @@ use EzPhp\Money\Money;
  */
 final readonly class Converter
 {
+    /**
+     * Converter Constructor
+     *
+     * @param ExchangeRateProviderInterface $provider
+     */
     public function __construct(private ExchangeRateProviderInterface $provider)
     {
     }

@@ -47,13 +47,19 @@ final class CachingExchangeRateProvider implements ExchangeRateProviderInterface
 
         $key = 'exchange_rate:' . $baseCode . ':' . $quoteCode;
 
-        /** @var BigDecimal $cached */
+        // Cache the decimal string, not the BigDecimal: cache values must be
+        // scalars/arrays (ez-php/cache rejects objects — the File/Redis drivers
+        // cannot restore them).
         $cached = $this->cache->remember(
             $key,
             $this->ttl,
-            fn (): BigDecimal => $this->provider->getRate($base, $quote),
+            fn (): string => $this->provider->getRate($base, $quote)->toString(),
         );
 
-        return $cached;
+        if (!is_string($cached)) {
+            throw new \UnexpectedValueException("Cached exchange rate '{$key}' is not a decimal string.");
+        }
+
+        return BigDecimal::of($cached);
     }
 }

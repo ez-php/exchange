@@ -6,6 +6,7 @@ namespace Tests;
 
 use EzPhp\BigNum\BigDecimal;
 use EzPhp\Cache\ArrayDriver;
+use EzPhp\Cache\FileDriver;
 use EzPhp\Exchange\CachingExchangeRateProvider;
 use EzPhp\Exchange\Exception\ExchangeRateNotFoundException;
 use EzPhp\Exchange\StaticExchangeRateProvider;
@@ -38,6 +39,29 @@ final class CachingExchangeRateProviderTest extends TestCase
         $stats = $cache->stats();
         self::assertSame(1, $stats->misses);
         self::assertSame(1, $stats->hits);
+    }
+
+    public function test_cached_rate_survives_a_serializing_cache_driver(): void
+    {
+        // Regression: the BigDecimal used to be cached as an object, which FileDriver/RedisDriver
+        // restore as __PHP_Incomplete_Class — the second call then threw a TypeError.
+        $dir = sys_get_temp_dir() . '/ez-exchange-cache-' . uniqid('', true);
+        $provider = new CachingExchangeRateProvider(
+            new StaticExchangeRateProvider(['EUR' => ['USD' => '1.10']]),
+            new FileDriver($dir),
+            60,
+        );
+
+        try {
+            $first = $provider->getRate('EUR', 'USD');
+            $second = $provider->getRate('EUR', 'USD');
+        } finally {
+            array_map('unlink', glob($dir . '/*') ?: []);
+            @rmdir($dir);
+        }
+
+        self::assertSame('1.10', $first->toString());
+        self::assertSame('1.10', $second->toString());
     }
 
     public function test_cache_is_keyed_by_currency_pair(): void
