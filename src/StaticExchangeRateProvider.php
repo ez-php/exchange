@@ -45,6 +45,9 @@ final class StaticExchangeRateProvider implements ExchangeRateProviderInterface
         $this->rates[$baseCode][$quoteCode] = $rate instanceof BigDecimal ? $rate : BigDecimal::of($rate);
     }
 
+    /**
+     * {@inheritDoc}
+     */
     public function getRate(Currency|string $base, Currency|string $quote): BigDecimal
     {
         $baseCode = self::codeOf($base);

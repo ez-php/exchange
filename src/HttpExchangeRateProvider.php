@@ -46,6 +46,9 @@ final class HttpExchangeRateProvider implements ExchangeRateProviderInterface
         }
     }
 
+    /**
+     * {@inheritDoc}
+     */
     public function getRate(Currency|string $base, Currency|string $quote): BigDecimal
     {
         $baseCode = self::codeOf($base);
