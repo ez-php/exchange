@@ -1,6 +1,6 @@
 {
   "name": "ez-php/exchange",
-  "version": "2.5.1",
+  "version": "2.5.2",
   "description": "Currency exchange-rate lookup and conversion for Money values",
   "type": "library",
   "license": "MIT",
