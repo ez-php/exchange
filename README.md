@@ -49,6 +49,22 @@ $jpy = $converter->convert(Money::of('1.00', 'EUR'), 'JPY'); // rounded to JPY's
 
 Historical/time-series rates are out of scope.
 
+### Historical rates
+
+Convert at the rate of a past day, e.g. an invoice's issue date:
+
+```php
+use EzPhp\Exchange\HttpHistoricalExchangeRateProvider;
+
+$historical = new HttpHistoricalExchangeRateProvider($client, 'https://api.example.com/{date}?from={base}&to={quote}', 'rate');
+$converter  = new Converter($currentProvider, $historical);
+
+$converter->convertAt($invoice->total, 'USD', $invoice->issuedAt);
+```
+
+`StaticHistoricalExchangeRateProvider` takes a `['2026-01-02' => ['EUR' => ['USD' => '1.10']]]` table; a day
+without an entry (weekend, holiday) uses the latest earlier rate.
+
 ### Caching a provider
 
 ```php

@@ -28,10 +28,11 @@ docker compose exec app composer full
 Executes in order:
 1. `sync_guidelines.php --check` — fails if any `CLAUDE.md` has drifted from this file
 2. `check_test_classes.php` — fails on a duplicate test class name (all packages share the `Tests\` namespace, so a collision is a fatal error in the aggregated run, not a test failure)
-3. `phpstan analyse` — static analysis, level 9, config: `phpstan.neon`
-4. `php-cs-fixer fix` — auto-fixes style (`@PSR12` + `@PHP83Migration` + strict rules)
+3. `check_module_deps.php` — fails when a package's code imports an ez-php package its `composer.json` does not declare (module `src`: `require`/`suggest`; tests: `require`/`require-dev` and their dependencies), or requires one it never uses
+4. `phpstan analyse` — static analysis, level 9, config: `phpstan.neon`
+5. `php-cs-fixer fix` — auto-fixes style (`@PSR12` + `@PHP83Migration` + strict rules)
    *(Note: `@PHP85Migration` does not exist yet in php-cs-fixer; `@PHP83Migration` is the highest available and is used intentionally even though the project targets PHP 8.5)*
-5. `phpunit` — all tests with coverage
+6. `phpunit` — all tests with coverage
 
 Individual commands when needed:
 ```
@@ -40,6 +41,7 @@ composer cs                  # CS Fixer only
 composer test                # PHPUnit only
 composer guidelines:check    # CLAUDE.md drift only
 composer test-classes:check  # duplicate test class names only
+composer module-deps:check   # undeclared / unused ez-php package dependencies only
 ```
 
 **PHPStan:** never suppress with `@phpstan-ignore-line` — always fix the root cause.
@@ -198,20 +200,22 @@ vendor/bin/docker-init
 
 This copies `Dockerfile`, `docker-compose.yml`, `.env.example`, `start.sh`, and `docker/` into the module, replacing `{{MODULE_NAME}}` placeholders. Existing files are never overwritten.
 
-Pass `--services` to merge MySQL/Redis/Meilisearch service definitions directly into `docker-compose.yml` and uncomment the matching sections in `.env.example`, instead of adapting them by hand afterward:
+Pass `--services` to merge MySQL/Redis/Meilisearch/Memcached/Mailpit service definitions directly into `docker-compose.yml` and uncomment the matching sections in `.env.example`, instead of adapting them by hand afterward:
 
 ```
 vendor/bin/docker-init --services=mysql
 vendor/bin/docker-init --services=redis
 vendor/bin/docker-init --services=meilisearch
 vendor/bin/docker-init --services=mysql,redis
+vendor/bin/docker-init --services=memcached,mailpit
 ```
 
-Pass `--extensions` to merge PHP extension install blocks (apt packages plus `docker-php-ext-install`/`pecl` lines) directly into `docker/app/Dockerfile`, instead of hand-editing it afterward — supported extensions: `bcmath`, `gmp`, `gd`, `imagick`:
+Pass `--extensions` to merge PHP extension install blocks (apt packages plus `docker-php-ext-install`/`pecl` lines) directly into `docker/app/Dockerfile`, instead of hand-editing it afterward — supported extensions: `bcmath`, `gmp`, `gd`, `imagick`, `memcached`, `apcu` (with `apc.enable_cli=1`):
 
 ```
 vendor/bin/docker-init --extensions=gmp,bcmath
 vendor/bin/docker-init --extensions=gd,imagick
+vendor/bin/docker-init --extensions=memcached,apcu
 ```
 
 When run from a module directory inside this monorepo, any requested extension not already present is also merged into the shared root `docker/app/Dockerfile` — the container `composer full` at the root actually runs against, distinct from the module's own standalone image.
@@ -274,8 +278,11 @@ src/
 ├── ExchangeRateProviderInterface.php    — getRate(base, quote): BigDecimal
 ├── StaticExchangeRateProvider.php       — In-memory rate table driver; also the standard test double
 ├── HttpExchangeRateProvider.php         — Generic HTTP-backed driver (URL template + dot-notation JSON path)
+├── HistoricalExchangeRateProviderInterface.php — getRateAt(base, quote, date): BigDecimal
+├── StaticHistoricalExchangeRateProvider.php — date → base → quote table; a day without a rate uses the latest earlier one
+├── HttpHistoricalExchangeRateProvider.php — HTTP driver with an extra {date} placeholder (date format configurable)
 ├── CachingExchangeRateProvider.php      — Decorator caching another provider's getRate() via ez-php/cache (soft dependency — require-dev only)
-├── Converter.php                        — Converts a Money to another currency using a provider
+├── Converter.php                        — Converts a Money to another currency using a provider; convertAt() with a historical provider
 └── Exception/
     ├── ExchangeException.php            — Base exception (extends RuntimeException; not final, extended by design)
     └── ExchangeRateNotFoundException.php — No rate for the pair, or the response couldn't be parsed
@@ -285,6 +292,7 @@ tests/
 ├── StaticExchangeRateProviderTest.php   — Rate table lookup, overwrite, same-currency shortcut, missing pair
 ├── HttpExchangeRateProviderTest.php     — URL templating, dot-path extraction, transport/HTTP-error handling
 ├── CachingExchangeRateProviderTest.php  — Cache hit/miss via ez-php/cache's ArrayDriver, FileDriver round-trip, per-pair key isolation, exception passthrough
+├── ExchangeHistoricalRatesTest.php      — static lookup incl. earlier-day fallback, HTTP {date} templating, Converter::convertAt()
 └── ConverterTest.php                    — Conversion, target-scale rounding, explicit rounding mode, same-currency
 ```
 
@@ -318,7 +326,7 @@ Decorator implementing `ExchangeRateProviderInterface` itself, so it composes tr
 
 - **Rates are cached as decimal strings, not `BigDecimal` objects** — `ez-php/cache` only stores null/scalars/arrays (its File/Redis drivers cannot restore objects), so `CachingExchangeRateProvider` caches `BigDecimal::toString()` and rebuilds with `BigDecimal::of()`; the scale is preserved by the string form.
 - **No built-in caching on the base providers** — `StaticExchangeRateProvider`/`HttpExchangeRateProvider` never cache internally. `CachingExchangeRateProvider` provides caching as an explicit decorator instead, composed at the application's discretion (e.g. wrapping `HttpExchangeRateProvider` but not `StaticExchangeRateProvider`, which is already in-memory) — via `require-dev`, not `require`, so it costs nothing for applications that don't want it.
-- **No historical/time-series rates** — `getRate()` always returns "now"; a time-series API is a different, larger surface left for a future package or application code.
+- **Historical rates are a separate interface** — `HistoricalExchangeRateProviderInterface::getRateAt()` sits beside `getRate()` ("now") instead of adding an optional date to it, so existing providers and callers are untouched. Only the calendar day of the date counts. The static driver falls back to the latest earlier day with a rate (reference rates aren't published on weekends/holidays); the HTTP driver just fills `{date}` and reuses `HttpExchangeRateProvider`'s request/parsing. `Converter::convertAt()` needs the historical provider passed as the Converter's second argument and throws `ExchangeException` without it. No time-series storage or caching of past rates.
 - **`HttpExchangeRateProvider` is deliberately generic** — a URL template plus a JSON path, rather than one hardcoded provider's API shape (e.g. a specific vendor's endpoint contract). Adding a dedicated driver for a specific API is an application-layer concern unless a second concrete need emerges.
 - **`ExchangeException` is the one non-final class**, per the exception-hierarchy carve-out in the coding guidelines — it exists to be extended by `ExchangeRateNotFoundException` (and any future exception this package adds).
 - **No framework coupling** — no container, service providers, or framework imports. Only runtime dependencies are `ez-php/bignum` (for `BigDecimal`), `ez-php/money` (for `Currency`/`Money`), and `ez-php/http-client` (for the HTTP driver).
@@ -341,7 +349,7 @@ Decorator implementing `ExchangeRateProviderInterface` itself, so it composes tr
 | Concern | Where it belongs |
 |---|---|
 | Cache invalidation policy / warming | Application layer, configuring `CachingExchangeRateProvider`'s TTL and driver choice |
-| Historical / time-series rates | Application layer or a future package |
+| Storing / syncing rate time series | Application layer (feed `StaticHistoricalExchangeRateProvider` or an HTTP API) |
 | `Money` arithmetic itself | `ez-php/money` |
 | Arbitrary-precision primitives | `ez-php/bignum` |
 | A specific vendor's rate API contract | Application layer, composing `HttpExchangeRateProvider` |
