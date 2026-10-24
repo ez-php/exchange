@@ -18,16 +18,16 @@
   },
   "require": {
     "php": "^8.5",
-    "ez-php/bignum": "^2.0",
-    "ez-php/money": "^2.0",
-    "ez-php/http-client": "^2.0"
+    "ez-php/bignum": "^2.6.0",
+    "ez-php/money": "^2.6.0",
+    "ez-php/http-client": "^2.6.0"
   },
   "suggest": {
     "ez-php/cache": "Needed for CachingExchangeRateProvider"
   },
   "require-dev": {
-    "ez-php/docker": "^2.0",
-    "ez-php/cache": "^2.0",
+    "ez-php/docker": "^2.6.0",
+    "ez-php/cache": "^2.6.0",
     "phpunit/phpunit": "^13.0",
     "phpstan/phpstan": "^2.1",
     "friendsofphp/php-cs-fixer": "^3.94",
